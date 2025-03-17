@@ -39,7 +39,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
+          cache: 'npm' # Cache the npm packages to speed up the build
       
       - name: Install dependencies
         run: npm ci
@@ -54,6 +54,18 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+    # GitHub Actions automatically provides a default token for workflows. 
+    # This token is available in the GITHUB_TOKEN environment variable and is used by default by the actions/checkout action if no token is explicitly provided.
+    # This default token has sufficient permissions to check out the repository and perform read operations.
+
+    # In the build job, the actions/checkout action is used to check out the code for read-only operations, such as building the project. 
+    # The default token provided by GitHub Actions is sufficient for this purpose.
+
+    # UNLIKE THE update-k8s JOB, the build job does not require write access to the repository.
+    # Therefore, the default token is sufficient for the build job.
+    # In the update-k8s job, a custom token is provided to ensure that the workflow has the necessary permissions to perform write operations, such as committing and pushing changes to the repository. 
+    # This is why you explicitly provide the token using secrets.TOKEN in the update-k8s job.
       
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -90,7 +102,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: build-artifacts
-          path: dist/
+          path: dist/ # Download the build artifacts to the dist/ directory
       
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -115,51 +127,67 @@ jobs:
       - name: Build Docker image
         uses: docker/build-push-action@v5
         with:
-          context: .
-          push: false
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          load: true
+          context: . # Use the current directory
+          push: false # Do not push the image yet to the registry
+          tags: ${{ steps.meta.outputs.tags }} # Use the tags from the metadata action
+          labels: ${{ steps.meta.outputs.labels }} # NOT USED, but can be added with metadata
+          load: true # Load the image into the Docker daemon
       
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
-          format: 'table'
-          exit-code: '1'
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }} # Image reference
+          format: 'table' # Output format
+          exit-code: '1' 
           ignore-unfixed: true
-          vuln-type: 'os,library'
-          severity: 'CRITICAL,HIGH'
+          vuln-type: 'os,library' # Scan for OS and library vulnerabilities
+          severity: 'CRITICAL,HIGH' # Only show critical and high severity vulnerabilities
       
       - name: Push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: .
-          push: true
+          context: . # Use the current directory
+          push: true 
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
       
       - name: Set image tag output
         id: set_output
-        run: echo "image_tag=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
+        run: echo "image_tag=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT 
+        # cut -c1-7 extracts the first 7 characters of the commit SHA.
+        # The output is saved to a file named GITHUB_OUTPUT, which is a built-in environment variable that contains the path to the file where the output is stored.
+        # $GITHUB_OUTPUT is a special environment variable used by GitHub Actions to set output values for steps.
 
   update-k8s:
     name: Update Kubernetes Deployment
     runs-on: ubuntu-latest
     needs: [docker]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' 
+    # Only run this job on the main branch when a push event occurs 
+    # github.ref is a built-in GitHub Actions context variable that contains the full reference of the branch or tag that triggered the workflow. 
+    # For example, refs/heads/main for the main branch.
+    # github.event_name is a built-in GitHub Actions context variable that contains the name of the event that triggered the workflow. 
+    # For example, push for a push event.
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.TOKEN }}
+          token: ${{ secrets.TOKEN }} 
+
+    # The actions/checkout action is used to check out the code with a custom token provided by the secrets.TOKEN secret.       
+    # In the update-k8s job, you are making changes to the Kubernetes deployment file and pushing those changes back to the repository. 
+    # To push changes, the workflow needs write access to the repository, which is granted by the token.
       
-      - name: Setup Git config
+      - name: Setup Git config # Configure Git with the GitHub Actions bot user
         run: |
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-      
-      - name: Update Kubernetes deployment file
+
+    # Configuring Git with a user name and email before making commits and pushing changes is mandatory to ensure that the commits have the correct author information. 
+    # This configuration avoids prompts that can cause automated workflows to fail and ensures consistency in tracking changes made by CI/CD pipelines. 
+    # By setting the user name and email to "GitHub Actions" and "actions@github.com", you clearly indicate that the commits were made by an automated process.
+  
+      - name: Update Kubernetes deployment file # Update the Kubernetes deployment file with the new image tag
         env:
           IMAGE_TAG: sha-${{ github.sha }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -168,12 +196,16 @@ jobs:
           # Define the new image with tag
           NEW_IMAGE="${REGISTRY}/${GITHUB_REPOSITORY}:${IMAGE_TAG}"
           
-          # Update the deployment file directly
+          # Update the deployment file directly 
           sed -i "s|image: ${REGISTRY}/.*|image: ${NEW_IMAGE}|g" kubernetes/deployment.yaml
-          
+          # The sed command is used to replace the image tag in the deployment.yaml file with the new image tag.
+
           # Verify the change
           echo "Updated deployment to use image: ${NEW_IMAGE}"
-          grep -A 1 "image:" kubernetes/deployment.yaml
+          grep -A 1 "image:" kubernetes/deployment.yaml #
+
+          # It searches for the pattern "image:" and displays the matching line along with the line after it. 
+          # This helps ensure that the sed command has correctly replaced the old image tag with the new one.
       
       - name: Commit and push changes
         run: |
