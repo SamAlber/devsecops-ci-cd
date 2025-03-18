@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main ]
     paths-ignore:
-      - 'kubernetes/deployment.yaml'  # Ignore changes to this file to prevent loops
+      - 'kubernetes/deployment.yaml'  # Ignore changes to this file to prevent loops (Without this ignore update-k8s job push will trigger the CI/CD pipeline again)
   pull_request:
     branches: [ main ]
 
@@ -79,11 +79,17 @@ jobs:
       - name: Build project
         run: npm run build
       
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+      - name: Upload build artifacts # Upload the build artifacts to be used in the docker job
+        uses: actions/upload-artifact@v4 # The actions/upload-artifact@v4 action uploads the contents of the dist/ directory and names the artifact build-artifacts.
         with:
           name: build-artifacts
           path: dist/
+
+      # Yes, you can specify different paths for the upload and download steps, but the artifact name must be the same to correctly identify the artifact. 
+      # The path in the upload step specifies where the files are located on the runner, and the path in the download step specifies where to place the downloaded files on the runner.
+      # Upload Path: The dist/ directory is relative to the root of the repository on the runner. 
+      # This means that if your repository is checked out to /home/runner/work/repo-name/repo-name, the dist/ directory would be /home/runner/work/repo-name/repo-name/dist/.
+      # Download Path: Similarly, the dist/ directory specified in the download step is relative to the root of the repository on the runner.
 
   docker:
     name: Docker Build and Push
@@ -94,6 +100,11 @@ jobs:
       IMAGE_NAME: ${{ github.repository }}
     outputs:
       image_tag: ${{ steps.set_output.outputs.image_tag }}
+    # The output image_tag is collected in the outputs section of the docker job. 
+    # This allows the image_tag to be used by other jobs that depend on the docker job, such as the update-k8s job.
+    # steps.set_output.outputs.image_tag collects the output from the $GITHUB_OUTPUT file that was set in the set_output step. 
+    # This mechanism allows you to pass values between steps and jobs in your GitHub Actions workflow.
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -102,17 +113,24 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: build-artifacts
-          path: dist/ # Download the build artifacts to the dist/ directory
+          path: dist/ # Download the build artifacts to the dist/ directory (relative to the root of the repository on the runner)
+          # The build artifacts are downloaded into the dist/ directory within your repository's directory structure on the runner.
+
+      # Artifact Naming: Ensure that the artifact name build-artifacts is consistent between the upload and download steps.
+      # The actions/upload-artifact and actions/download-artifact actions use the name to identify the artifact and the path to specify where the files are located or should be placed.
       
-      - name: Set up Docker Buildx
+      - name: Set up Docker Buildx # This allows the workflow to use advanced Docker build features provided by Buildx, such as multi-platform builds and cache management.
         uses: docker/setup-buildx-action@v3
       
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
+          username: ${{ github.actor }} # Use the GitHub Actions bot username
           password: ${{ secrets.TOKEN }}
+
+          # github.actor: Represents the username of the person or app that initiated the workflow.
+          # Bot Username: For GitHub Actions bot, the username is github-actions[bot].
       
       - name: Extract metadata for Docker
         id: meta
@@ -121,27 +139,34 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=sha,format=long
-            type=ref,event=branch
+            type=ref,event=branch # 
             latest
+          # Specifies the tags to be applied to the Docker image. Multiple tags can be specified using a multi-line string.
+          # type=sha,format=long: Tags the image with the full commit SHA.
+          # type=ref,event=branch: Tags the image with the branch name if the event is a branch-related event (e.g., push to a branch).
+          # If the workflow is triggered by a push to the main branch, the docker/metadata-action@v5 action will generate a tag with the branch name main.
+          # latest: Tags the image with latest.
       
       - name: Build Docker image
         uses: docker/build-push-action@v5
         with:
-          context: . # Use the current directory
-          push: false # Do not push the image yet to the registry
+          context: . # Use the current directory (The build artifact of the code will be fetched by the Dockerfile - COPY --from=build /app/dist /usr/share/nginx/html) 
+          # Because Copy . . Beforehand - Copies the rest of the application code to the /app directory.
+          push: false # Do not push the image yet to the registry 
           tags: ${{ steps.meta.outputs.tags }} # Use the tags from the metadata action
           labels: ${{ steps.meta.outputs.labels }} # NOT USED, but can be added with metadata
-          load: true # Load the image into the Docker daemon
+          load: true # Load the image into the Docker daemon (will be seen in docker images in the ubuntu-latest runner env)
       
-      - name: Run Trivy vulnerability scanner
+      - name: Run Trivy vulnerability scanner # Scan the Docker image for vulnerabilities
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }} # Image reference
           format: 'table' # Output format
           exit-code: '1' 
-          ignore-unfixed: true
+          ignore-unfixed: true # Ignores vulnerabilities that do not have a fix available.
           vuln-type: 'os,library' # Scan for OS and library vulnerabilities
-          severity: 'CRITICAL,HIGH' # Only show critical and high severity vulnerabilities
+          severity: 'CRITICAL,HIGH' # Only show critical and high severity vulnerabilities 
+          # Wi that we're ensuring that only secure and compliant images are deployed.
       
       - name: Push Docker image
         uses: docker/build-push-action@v5
