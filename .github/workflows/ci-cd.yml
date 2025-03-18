@@ -8,13 +8,20 @@ on:
   pull_request:
     branches: [ main ]
 
-jobs:
+jobs: # # Each job in a GitHub Actions workflow runs in a fresh instance of a runner.
   test:
     name: Unit Testing
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+        # For example, if your repository is named devsecops-ci-cd, it will be checked out to:
+        # /home/runner/work/devsecops-ci-cd/devsecops-ci-cd
+
+        # The repository is checked out to a directory structure under the runner's workspace. Specifically, it is checked out to:
+        # /home/runner/work/<repository-name>/<repository-name>
+        # It does indeed include the repository name twice.
       
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -104,7 +111,7 @@ jobs:
     # This allows the image_tag to be used by other jobs that depend on the docker job, such as the update-k8s job.
     # steps.set_output.outputs.image_tag collects the output from the $GITHUB_OUTPUT file that was set in the set_output step. 
     # This mechanism allows you to pass values between steps and jobs in your GitHub Actions workflow.
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -139,14 +146,27 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=sha,format=long
-            type=ref,event=branch # 
+            type=ref,event=branch  
             latest
+
           # Specifies the tags to be applied to the Docker image. Multiple tags can be specified using a multi-line string.
           # type=sha,format=long: Tags the image with the full commit SHA.
           # type=ref,event=branch: Tags the image with the branch name if the event is a branch-related event (e.g., push to a branch).
           # If the workflow is triggered by a push to the main branch, the docker/metadata-action@v5 action will generate a tag with the branch name main.
           # latest: Tags the image with latest.
+          # It dynamically generates tags for the Docker image based on the commit SHA, branch name, and a static latest tag.
       
+          # When the docker images command runs, it will output a list of Docker images, including the tags that were applied during the build process. 
+          # The labels can be inspected using the docker inspect command.
+          # docker inspect ghcr.io/my-repo:sha-abcdef1234567890abcdef1234567890abcdef12 
+
+          # Example to set this up: 
+
+          # labels: |
+            # org.opencontainers.image.source=${{ github.repository }}
+            # org.opencontainers.image.created=${{ github.event.head_commit.timestamp }}
+            # org.opencontainers.image.revision=${{ github.sha }}
+
       - name: Build Docker image
         uses: docker/build-push-action@v5
         with:
@@ -157,6 +177,13 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }} # NOT USED, but can be added with metadata
           load: true # Load the image into the Docker daemon (will be seen in docker images in the ubuntu-latest runner env)
       
+          # It will look something like this:
+          # REPOSITORY                TAG                                      IMAGE ID       CREATED          SIZE
+          # ghcr.io/my-repo           sha-abcdef1234567890abcdef1234567890abcdef12   abcdef123456   2 minutes ago    123MB
+          # ghcr.io/my-repo           main                                     abcdef123456   2 minutes ago    123MB
+          # ghcr.io/my-repo           latest                                   abcdef123456   2 minutes ago    123MB
+
+      
       - name: Run Trivy vulnerability scanner # Scan the Docker image for vulnerabilities
         uses: aquasecurity/trivy-action@master
         with:
@@ -166,7 +193,7 @@ jobs:
           ignore-unfixed: true # Ignores vulnerabilities that do not have a fix available.
           vuln-type: 'os,library' # Scan for OS and library vulnerabilities
           severity: 'CRITICAL,HIGH' # Only show critical and high severity vulnerabilities 
-          # Wi that we're ensuring that only secure and compliant images are deployed.
+          # With that we're ensuring that only secure and compliant images are deployed.
       
       - name: Push Docker image
         uses: docker/build-push-action@v5
