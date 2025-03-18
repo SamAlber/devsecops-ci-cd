@@ -6,19 +6,20 @@ on:
     paths-ignore:
       - 'kubernetes/deployment.yaml'  # Ignore changes to this file to prevent loops (Without this ignore update-k8s job push will trigger the CI/CD pipeline again)
   pull_request:
-    branches: [ main ]
+    branches: [ main ] 
+    # Only the first pull request will trigger ci/cd.
+    # No worries because the updatek8s will ignore the file on the push next time.
 
-jobs: # # Each job in a GitHub Actions workflow runs in a fresh instance of a runner.
+jobs: # Each job in a GitHub Actions workflow runs in a fresh instance of a runner.
+
   test:
     name: Unit Testing
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
         # For example, if your repository is named devsecops-ci-cd, it will be checked out to:
         # /home/runner/work/devsecops-ci-cd/devsecops-ci-cd
-
         # The repository is checked out to a directory structure under the runner's workspace. Specifically, it is checked out to:
         # /home/runner/work/<repository-name>/<repository-name>
         # It does indeed include the repository name twice.
@@ -62,17 +63,15 @@ jobs: # # Each job in a GitHub Actions workflow runs in a fresh instance of a ru
       - name: Checkout code
         uses: actions/checkout@v4
 
-    # GitHub Actions automatically provides a default token for workflows. 
-    # This token is available in the GITHUB_TOKEN environment variable and is used by default by the actions/checkout action if no token is explicitly provided.
-    # This default token has sufficient permissions to check out the repository and perform read operations.
-
-    # In the build job, the actions/checkout action is used to check out the code for read-only operations, such as building the project. 
-    # The default token provided by GitHub Actions is sufficient for this purpose.
-
-    # UNLIKE THE update-k8s JOB, the build job does not require write access to the repository.
-    # Therefore, the default token is sufficient for the build job.
-    # In the update-k8s job, a custom token is provided to ensure that the workflow has the necessary permissions to perform write operations, such as committing and pushing changes to the repository. 
-    # This is why you explicitly provide the token using secrets.TOKEN in the update-k8s job.
+      # GitHub Actions automatically provides a default token for workflows. 
+      # This token is available in the GITHUB_TOKEN environment variable and is used by default by the actions/checkout action if no token is explicitly provided.
+      # This default token has sufficient permissions to check out the repository and perform read operations.
+      # In the build job, the actions/checkout action is used to check out the code for read-only operations, such as building the project. 
+      # The default token provided by GitHub Actions is sufficient for this purpose.
+      # UNLIKE THE update-k8s JOB, the build job does not require write access to the repository.
+      # Therefore, the default token is sufficient for the build job.
+      # In the update-k8s job, a custom token is provided to ensure that the workflow has the necessary permissions to perform write operations, such as committing and pushing changes to the repository. 
+      # This is why you explicitly provide the token using secrets.TOKEN in the update-k8s job.
       
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -91,12 +90,36 @@ jobs: # # Each job in a GitHub Actions workflow runs in a fresh instance of a ru
         with:
           name: build-artifacts
           path: dist/
-
       # Yes, you can specify different paths for the upload and download steps, but the artifact name must be the same to correctly identify the artifact. 
       # The path in the upload step specifies where the files are located on the runner, and the path in the download step specifies where to place the downloaded files on the runner.
       # Upload Path: The dist/ directory is relative to the root of the repository on the runner. 
       # This means that if your repository is checked out to /home/runner/work/repo-name/repo-name, the dist/ directory would be /home/runner/work/repo-name/repo-name/dist/.
       # Download Path: Similarly, the dist/ directory specified in the download step is relative to the root of the repository on the runner.
+      # The artifacts uploaded using actions/upload-artifact@v4 are stored in GitHub's artifact storage system. Here's a detailed explanation:
+      # Storage Location:
+      # Artifacts are stored on GitHub's servers
+      # Accessible through the GitHub Actions UI
+      # Available at: https://github.com/<owner>/<repository>/actions/runs/<run-id>
+      # Storage Duration:  # Optional: customize retention period 
+      # By default, artifacts are stored for 90 days
+      # This retention period can be configured using the retention-days parameter
+      # Artifacts are accessible through: retention-days: 5 
+      # GitHub Actions UI in your repository
+      # GitHub's REST API
+      # Subsequent jobs in the same workflow using actions/download-artifact
+      # GitHub enforces storage limits based on your account type
+      # Free accounts: 500MB per artifact
+      # GitHub Enterprise: 2GB per artifact
+      # Viewing Artifacts: To view your artifacts:
+      # Go to your repository on GitHub
+      # Click the "Actions" tab
+      # Select the workflow run
+      # Scroll down to the "Artifacts" section
+      # The artifacts are stored separately from your repository and are only accessible 
+      # through the GitHub Actions workflow context or the GitHub UI/API.
+      # This uploads the entire dist directory and all its contents
+      # The contents are compressed into a single artifact named build-artifacts
+      # Stored on GitHub's servers, not in your repository
 
   docker:
     name: Docker Build and Push
@@ -106,12 +129,11 @@ jobs: # # Each job in a GitHub Actions workflow runs in a fresh instance of a ru
       REGISTRY: ghcr.io
       IMAGE_NAME: ${{ github.repository }}
     outputs:
-      image_tag: ${{ steps.set_output.outputs.image_tag }}
+      image_tag: ${{ steps.set_output.outputs.image_tag }} # Collect the image tag output from the set_output step for the update-k8s job commit. (keep it shorter than the whole commit.)
     # The output image_tag is collected in the outputs section of the docker job. 
     # This allows the image_tag to be used by other jobs that depend on the docker job, such as the update-k8s job.
     # steps.set_output.outputs.image_tag collects the output from the $GITHUB_OUTPUT file that was set in the set_output step. 
     # This mechanism allows you to pass values between steps and jobs in your GitHub Actions workflow.
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -120,11 +142,11 @@ jobs: # # Each job in a GitHub Actions workflow runs in a fresh instance of a ru
         uses: actions/download-artifact@v4
         with:
           name: build-artifacts
-          path: dist/ # Download the build artifacts to the dist/ directory (relative to the root of the repository on the runner)
+          path: dist/
+          # Download the build artifacts to the dist/ directory (relative to the root of the repository on the runner)
           # The build artifacts are downloaded into the dist/ directory within your repository's directory structure on the runner.
-
-      # Artifact Naming: Ensure that the artifact name build-artifacts is consistent between the upload and download steps.
-      # The actions/upload-artifact and actions/download-artifact actions use the name to identify the artifact and the path to specify where the files are located or should be placed.
+          # Artifact Naming: Ensure that the artifact name build-artifacts is consistent between the upload and download steps.
+          # The actions/upload-artifact and actions/download-artifact actions use the name to identify the artifact and the path to specify where the files are located or should be placed.
       
       - name: Set up Docker Buildx # This allows the workflow to use advanced Docker build features provided by Buildx, such as multi-platform builds and cache management.
         uses: docker/setup-buildx-action@v3
@@ -135,7 +157,6 @@ jobs: # # Each job in a GitHub Actions workflow runs in a fresh instance of a ru
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }} # Use the GitHub Actions bot username
           password: ${{ secrets.TOKEN }}
-
           # github.actor: Represents the username of the person or app that initiated the workflow.
           # Bot Username: For GitHub Actions bot, the username is github-actions[bot].
       
@@ -148,25 +169,23 @@ jobs: # # Each job in a GitHub Actions workflow runs in a fresh instance of a ru
             type=sha,format=long
             type=ref,event=branch  
             latest
-
+          # Dependency Between Docker Metadata and Login Steps
+          # No, the Extract metadata for Docker step is not dependent on the Login to GitHub Container Registry step
           # Specifies the tags to be applied to the Docker image. Multiple tags can be specified using a multi-line string.
           # type=sha,format=long: Tags the image with the full commit SHA.
           # type=ref,event=branch: Tags the image with the branch name if the event is a branch-related event (e.g., push to a branch).
           # If the workflow is triggered by a push to the main branch, the docker/metadata-action@v5 action will generate a tag with the branch name main.
           # latest: Tags the image with latest.
           # It dynamically generates tags for the Docker image based on the commit SHA, branch name, and a static latest tag.
-      
           # When the docker images command runs, it will output a list of Docker images, including the tags that were applied during the build process. 
           # The labels can be inspected using the docker inspect command.
           # docker inspect ghcr.io/my-repo:sha-abcdef1234567890abcdef1234567890abcdef12 
-
           # Example to set this up: 
-
           # labels: |
-            # org.opencontainers.image.source=${{ github.repository }}
-            # org.opencontainers.image.created=${{ github.event.head_commit.timestamp }}
-            # org.opencontainers.image.revision=${{ github.sha }}
-
+          #   org.opencontainers.image.source=${{ github.repository }}
+          #   org.opencontainers.image.created=${{ github.event.head_commit.timestamp }}
+          #   org.opencontainers.image.revision=${{ github.sha }}
+      
       - name: Build Docker image
         uses: docker/build-push-action@v5
         with:
@@ -176,13 +195,11 @@ jobs: # # Each job in a GitHub Actions workflow runs in a fresh instance of a ru
           tags: ${{ steps.meta.outputs.tags }} # Use the tags from the metadata action
           labels: ${{ steps.meta.outputs.labels }} # NOT USED, but can be added with metadata
           load: true # Load the image into the Docker daemon (will be seen in docker images in the ubuntu-latest runner env)
-      
-          # It will look something like this:
-          # REPOSITORY                TAG                                      IMAGE ID       CREATED          SIZE
-          # ghcr.io/my-repo           sha-abcdef1234567890abcdef1234567890abcdef12   abcdef123456   2 minutes ago    123MB
-          # ghcr.io/my-repo           main                                     abcdef123456   2 minutes ago    123MB
-          # ghcr.io/my-repo           latest                                   abcdef123456   2 minutes ago    123MB
-
+      # It will look something like this:
+      # REPOSITORY                TAG                                      IMAGE ID       CREATED          SIZE
+      # ghcr.io/my-repo           sha-abcdef1234567890abcdef1234567890abcdef12   abcdef123456   2 minutes ago    123MB
+      # ghcr.io/my-repo           main                                     abcdef123456   2 minutes ago    123MB
+      # ghcr.io/my-repo           latest                                   abcdef123456   2 minutes ago    123MB
       
       - name: Run Trivy vulnerability scanner # Scan the Docker image for vulnerabilities
         uses: aquasecurity/trivy-action@master
@@ -225,20 +242,18 @@ jobs: # # Each job in a GitHub Actions workflow runs in a fresh instance of a ru
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.TOKEN }} 
-
-    # The actions/checkout action is used to check out the code with a custom token provided by the secrets.TOKEN secret.       
-    # In the update-k8s job, you are making changes to the Kubernetes deployment file and pushing those changes back to the repository. 
-    # To push changes, the workflow needs write access to the repository, which is granted by the token.
+      # The actions/checkout action is used to check out the code with a custom token provided by the secrets.TOKEN secret.       
+      # In the update-k8s job, you are making changes to the Kubernetes deployment file and pushing those changes back to the repository. 
+      # To push changes, the workflow needs write access to the repository, which is granted by the token.
       
       - name: Setup Git config # Configure Git with the GitHub Actions bot user
         run: |
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-
-    # Configuring Git with a user name and email before making commits and pushing changes is mandatory to ensure that the commits have the correct author information. 
-    # This configuration avoids prompts that can cause automated workflows to fail and ensures consistency in tracking changes made by CI/CD pipelines. 
-    # By setting the user name and email to "GitHub Actions" and "actions@github.com", you clearly indicate that the commits were made by an automated process.
-  
+      # Configuring Git with a user name and email before making commits and pushing changes is mandatory to ensure that the commits have the correct author information. 
+      # This configuration avoids prompts that can cause automated workflows to fail and ensures consistency in tracking changes made by CI/CD pipelines. 
+      # By setting the user name and email to "GitHub Actions" and "actions@github.com", you clearly indicate that the commits were made by an automated process.
+      
       - name: Update Kubernetes deployment file # Update the Kubernetes deployment file with the new image tag
         env:
           IMAGE_TAG: sha-${{ github.sha }}
@@ -251,11 +266,9 @@ jobs: # # Each job in a GitHub Actions workflow runs in a fresh instance of a ru
           # Update the deployment file directly 
           sed -i "s|image: ${REGISTRY}/.*|image: ${NEW_IMAGE}|g" kubernetes/deployment.yaml
           # The sed command is used to replace the image tag in the deployment.yaml file with the new image tag.
-
           # Verify the change
           echo "Updated deployment to use image: ${NEW_IMAGE}"
           grep -A 1 "image:" kubernetes/deployment.yaml #
-
           # It searches for the pattern "image:" and displays the matching line along with the line after it. 
           # This helps ensure that the sed command has correctly replaced the old image tag with the new one.
       
