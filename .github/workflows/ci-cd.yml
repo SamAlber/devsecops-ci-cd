@@ -79,10 +79,14 @@ jobs:
     needs: [build]
     env:
       REGISTRY: ghcr.io
-      IMAGE_NAME: ${{ github.repository }}
     outputs:
       image_tag: ${{ steps.set_output.outputs.image_tag }}
     steps:
+
+      - name: Set lowercase repository name
+        run: |
+          echo "IMAGE_NAME=${GITHUB_REPOSITORY,,}" >> ${GITHUB_ENV}
+
       - name: Checkout code
         uses: actions/checkout@v4
       
@@ -149,6 +153,7 @@ jobs:
     needs: [docker]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:
@@ -158,11 +163,14 @@ jobs:
         run: |
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
+
+      - name: Set lowercase repository name
+        run: |
+          echo "GITHUB_REPOSITORY=${GITHUB_REPOSITORY,,}" >> ${GITHUB_ENV}
       
       - name: Update Kubernetes deployment file
         env:
           IMAGE_TAG: sha-${{ github.sha }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
           REGISTRY: ghcr.io
         run: |
           # Define the new image with tag

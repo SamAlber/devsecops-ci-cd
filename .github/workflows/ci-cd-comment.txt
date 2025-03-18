@@ -90,6 +90,22 @@ jobs: # Each job in a GitHub Actions workflow runs in a fresh instance of a runn
         with:
           name: build-artifacts
           path: dist/
+
+      # Takes contents of dist directory
+      # Creates build-artifacts.zip
+      # Uploads to GitHub's storage
+
+     # build-artifacts.zip
+     # └── [contents of dist/]
+     #     ├── file1
+     #     ├── file2
+     #     └── file3
+
+    # The download link points to the zip file
+    # The directory structure is preserved inside the zip
+    # When downloaded in a workflow, the action automatically handles extraction
+    # You won't see dist in the URL because it's inside the zip file
+    
       # Yes, you can specify different paths for the upload and download steps, but the artifact name must be the same to correctly identify the artifact. 
       # The path in the upload step specifies where the files are located on the runner, and the path in the download step specifies where to place the downloaded files on the runner.
       # Upload Path: The dist/ directory is relative to the root of the repository on the runner. 
