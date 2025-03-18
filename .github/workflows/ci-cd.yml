@@ -214,7 +214,7 @@ jobs:
   update-k8s-auto:
     name: Update Kubernetes Deployment (Auto Push)
     runs-on: ubuntu-latest
-    needs: [docker_push_auto]
+    needs: [docker_push_auto, docker_build]
     if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.docker_push_auto.result == 'success' }}
 
     # We've seen this way before: 
@@ -270,7 +270,7 @@ jobs:
   update-k8s-manual:
     name: Update Kubernetes Deployment (Manual Push)
     runs-on: ubuntu-latest
-    needs: [docker_push_manual]
+    needs: [docker_push_manual, docker_build]
     if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.docker_push_manual.result == 'success' }}
     steps:
       - name: Checkout code
@@ -308,3 +308,8 @@ jobs:
           git add kubernetes/deployment.yaml
           git commit -m "Update Kubernetes deployment with new image tag: ${{ needs.docker_build.outputs.image_tag }} [skip ci]" || echo "No changes to commit"
           git push --force
+
+
+        # Job Dependencies:
+        # Your update‑k8s job references ${{ needs.docker_build.outputs.image_tag }} but its needs array only includes docker_push_auto and docker_push_manual. 
+        # That's why we will add this too to fetch the output from the docker_build job.
