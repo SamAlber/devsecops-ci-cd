@@ -211,16 +211,17 @@ jobs:
           tags: ${{ needs.docker_build.outputs.meta_tags }}
           labels: ${{ needs.docker_build.outputs.meta_labels }}
 
-  update-k8s:
-    name: Update Kubernetes Deployment
+  update-k8s-auto:
+    name: Update Kubernetes Deployment (Auto Push)
     runs-on: ubuntu-latest
-    needs: [docker_push_auto, docker_push_manual]
-    if: >-
-      github.ref == 'refs/heads/main' &&
-      github.event_name == 'push' &&
-      (needs.docker_push_auto.result == 'success' || needs.docker_push_manual.result == 'success') 
+    needs: [docker_push_auto]
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.docker_push_auto.result == 'success' }}
 
-    # if: github.ref == 'refs/heads/main' && github.event_name == 'push' && (needs.docker_push_auto.result == 'success' || needs.docker_push_manual.result == 'success')
+    # We've seen this way before: 
+    #  if: >-
+    #  github.ref == 'refs/heads/main' &&
+    #  github.event_name == 'push' &&
+    #  (needs.docker_push_auto.result == 'success' || needs.docker_push_manual.result == 'success') 
     # Equivalently, to the above condition.   
 
     # The if statement at the job level acts as a gatekeeper. 
@@ -228,22 +229,20 @@ jobs:
     # The branch is main.
     # The event that triggered the workflow is a push.
     # At least one of the Docker push jobs (automatic or manual) succeeded.
-      
-    steps:
 
+    steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Setup Git config
         run: |
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-
+      
       - name: Set lowercase repository name
-        run: |
-          echo "GITHUB_REPOSITORY=${GITHUB_REPOSITORY,,}" >> ${GITHUB_ENV}
+        run: echo "GITHUB_REPOSITORY=${GITHUB_REPOSITORY,,}" >> ${GITHUB_ENV}
       
       - name: Update Kubernetes deployment file
         env:
@@ -261,6 +260,50 @@ jobs:
           grep -A 1 "image:" kubernetes/deployment.yaml
       
       - name: Commit and push changes
+        env:
+          IMAGE_TAG: sha-${{ github.sha }}
+        run: |
+          git add kubernetes/deployment.yaml
+          git commit -m "Update Kubernetes deployment with new image tag: ${{ needs.docker_build.outputs.image_tag }} [skip ci]" || echo "No changes to commit"
+          git push --force
+
+  update-k8s-manual:
+    name: Update Kubernetes Deployment (Manual Push)
+    runs-on: ubuntu-latest
+    needs: [docker_push_manual]
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.docker_push_manual.result == 'success' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Setup Git config
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+      
+      - name: Set lowercase repository name
+        run: echo "GITHUB_REPOSITORY=${GITHUB_REPOSITORY,,}" >> ${GITHUB_ENV}
+      
+      - name: Update Kubernetes deployment file
+        env:
+          IMAGE_TAG: sha-${{ github.sha }}
+          REGISTRY: ghcr.io
+        run: |
+          # Define the new image with tag
+          NEW_IMAGE="${REGISTRY}/${GITHUB_REPOSITORY}:${IMAGE_TAG}"
+          
+          # Update the deployment file directly
+          sed -i "s|image: ${REGISTRY}/.*|image: ${NEW_IMAGE}|g" kubernetes/deployment.yaml
+          
+          # Verify the change
+          echo "Updated deployment to use image: ${NEW_IMAGE}"
+          grep -A 1 "image:" kubernetes/deployment.yaml
+      
+      - name: Commit and push changes
+        env:
+          IMAGE_TAG: sha-${{ github.sha }}
         run: |
           git add kubernetes/deployment.yaml
           git commit -m "Update Kubernetes deployment with new image tag: ${{ needs.docker_build.outputs.image_tag }} [skip ci]" || echo "No changes to commit"
