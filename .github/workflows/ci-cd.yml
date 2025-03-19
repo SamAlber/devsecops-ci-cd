@@ -242,7 +242,7 @@ jobs:
           git config user.email "actions@github.com"
       
       - name: Set lowercase repository name
-        run: echo "GITHUB_REPOSITORY=${GITHUB_REPOSITORY,,}" >> ${GITHUB_ENV}
+        run: echo "REPOSITORY=${GITHUB_REPOSITORY,,}" >> ${GITHUB_ENV}
       
       - name: Update Kubernetes deployment file
         env:
@@ -250,7 +250,7 @@ jobs:
           REGISTRY: ghcr.io
         run: |
           # Define the new image with tag
-          NEW_IMAGE="${REGISTRY}/${GITHUB_REPOSITORY}:${IMAGE_TAG}"
+          NEW_IMAGE="${REGISTRY}/${REPOSITORY}:${IMAGE_TAG}"
           
           # Update the deployment file directly
           sed -i "s|image: ${REGISTRY}/.*|image: ${NEW_IMAGE}|g" kubernetes/deployment.yaml
@@ -284,7 +284,9 @@ jobs:
           git config user.email "actions@github.com"
       
       - name: Set lowercase repository name
-        run: echo "GITHUB_REPOSITORY=${GITHUB_REPOSITORY,,}" >> ${GITHUB_ENV}
+        run: echo "REPOSITORY=${GITHUB_REPOSITORY,,}" >> ${GITHUB_ENV}
+
+        # IT'S Important to keep REPOSITORY and GITHUB_REPOSITORY separate as if you use GITHUB_REPOSITORY in the sed command, it will get the original one. 
       
       - name: Update Kubernetes deployment file
         env:
@@ -292,7 +294,7 @@ jobs:
           REGISTRY: ghcr.io
         run: |
           # Define the new image with tag
-          NEW_IMAGE="${REGISTRY}/${GITHUB_REPOSITORY}:${IMAGE_TAG}"
+          NEW_IMAGE="${REGISTRY}/${REPOSITORY}:${IMAGE_TAG}"
           
           # Update the deployment file directly
           sed -i "s|image: ${REGISTRY}/.*|image: ${NEW_IMAGE}|g" kubernetes/deployment.yaml
